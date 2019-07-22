@@ -1,0 +1,93 @@
+input {
+  beats {
+    port => 5044
+  }
+}
+
+filter {
+  grok {
+    match => { "message" => "%{MONTH}  %{MONTHDAY} %{HOUR}:%{MINUTE}:%{SECOND} %{HOSTNAME} %{WORD}: %{GREEDYDATA}" }
+  }
+}
+
+output {
+  elasticsearch { 
+    hosts => ["localhost:9200"] 
+    index => ["messages-%{+YYYY.MM.dd}"]
+  }
+}
+
+---------------------------------------
+
+
+filebeat.prospectors:
+- type: log
+  paths:
+    - /var/log/messages
+  fields:
+    logtype: system
+- type: log
+  paths: 
+    - /opt/apache-tomcat-9.0.12/logs/catalina.out  
+  fields:
+    logtype: tomcat
+output.logstash:
+  hosts: ["elk:5044"]
+
+
+-----------------------------------------
+input {
+  beats {
+    port => 5044
+  }
+}
+
+
+filter {
+
+  if [fields][logtype] == "system" {
+    grok {
+      match => { "message" => "%{MONTH:month}\s*%{MONTHDAY:monthday} %{HOUR:hour}:%{MINUTE:minute}:%{SECOND:second} %{HOSTNAME:hostname} %{WORD:servicename}.*: %{GREEDYDATA:errorlog}" }
+       }
+    mutate {
+      add_field => [ "index_name", "%{[fields][logtype]}" ]
+     }
+   }
+  else if [fields][logtype] == "tomcat" {
+    grok {
+      match => { "message" => "%{MONTHDAY:monthday}-%{MONTH:month}-%{YEAR:year} %{HOUR:hour}:%{MINUTE:minute}:%{SECOND:second}.%{INT:ptime} %{LOGLEVEL:loglevel} %{GREEDYDATA:errorlog}" }       
+      }
+    mutate {
+      add_field => [ "index_name", "%{[fields][logtype]}" ]
+     }
+   }
+}
+
+output {
+  elasticsearch { 
+    hosts => ["localhost:9200"] 
+    index => ["%{index_name}-%{+YYYY.MM.dd}"]
+  }
+}
+-----------------------------------------------------------
+
+
+MULTILINE CONFIG
+--------------------------------------------------------------
+filebeat.prospectors:
+- type: log
+  paths:
+    - /var/log/messages
+  fields:
+    logtype: system
+- type: log
+  paths: 
+    - /opt/apache-tomcat-9.0.12/logs/catalina.out  
+  fields:
+    logtype: tomcat
+  multiline.pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+  multiline.negate: true
+  multiline.match: after
+output.logstash:
+  hosts: ["elk:5044"]
+----------------------------------------------------
